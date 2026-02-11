@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 BOT_SOURCE = "GITHUB_ACTIONS"
 
 # ===============================
-# 🔐 TELEGRAM CONFIG (AS REQUESTED)
+# 🔐 TELEGRAM CONFIG
 # ===============================
 TOKEN = "8364584748:AAFeym3et4zJwmdKRxYtP3ieIKV8FuPWdQ8"
 CHAT_ID = "@Tradecocom"
@@ -20,14 +20,11 @@ CHAT_ID = "@Tradecocom"
 # ===============================
 PAIRS = ["BTC/USDT", "ETH/USDT", "BNB/USDT", "SOL/USDT"]
 
-ENTRY_TIMEFRAME = "1h"
-TREND_TIMEFRAME = "4h"
-
 EMA_FAST = 20
 EMA_SLOW = 50
 EMA_TREND = 200
 
-COOLDOWN = 3600  # 1 hour cooldown per signal
+COOLDOWN = 900  # 15 minutes cooldown
 
 # ===============================
 # 🔁 EXCHANGE (MEXC – FREE)
@@ -46,7 +43,7 @@ def send_alert(text):
 # ===============================
 # 📊 FETCH DATA
 # ===============================
-def get_data(symbol, timeframe, limit=200):
+def get_data(symbol, timeframe, limit=300):
     candles = exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit)
     return pd.DataFrame(
         candles,
@@ -54,42 +51,40 @@ def get_data(symbol, timeframe, limit=200):
     )
 
 # ===============================
-# 📈 TREND CHECK (4H EMA 200)
+# 📈 GENERIC TREND FUNCTION
 # ===============================
-def get_trend(symbol):
-    df = get_data(symbol, TREND_TIMEFRAME)
+def get_trend(symbol, timeframe):
+    df = get_data(symbol, timeframe)
     df["ema200"] = df["close"].ewm(span=EMA_TREND).mean()
 
-    close = df["close"].iloc[-2]      # closed candle
+    close = df["close"].iloc[-2]
     ema200 = df["ema200"].iloc[-2]
 
     return "BULL" if close > ema200 else "BEAR"
 
 # ===============================
-# 🚀 ENTRY SIGNAL (1H EMA CROSS)
+# 🚀 GENERIC ENTRY CHECK
 # ===============================
-def check_entry(symbol):
-    trend = get_trend(symbol)
+def check_entry(symbol, trend_tf, entry_tf, strategy_name):
+    trend = get_trend(symbol, trend_tf)
 
-    df = get_data(symbol, ENTRY_TIMEFRAME)
+    df = get_data(symbol, entry_tf)
     df["ema20"] = df["close"].ewm(span=EMA_FAST).mean()
     df["ema50"] = df["close"].ewm(span=EMA_SLOW).mean()
 
-    # CLOSED candles only
     prev_fast = df["ema20"].iloc[-3]
     prev_slow = df["ema50"].iloc[-3]
     curr_fast = df["ema20"].iloc[-2]
     curr_slow = df["ema50"].iloc[-2]
-
     price = df["close"].iloc[-2]
 
     signal = None
 
     if trend == "BULL" and prev_fast < prev_slow and curr_fast > curr_slow:
-        signal = "🟢 BUY (Swing EMA Crossover)"
+        signal = f"🟢 BUY ({strategy_name})"
 
     if trend == "BEAR" and prev_fast > prev_slow and curr_fast < curr_slow:
-        signal = "🔴 SELL (Swing EMA Crossover)"
+        signal = f"🔴 SELL ({strategy_name})"
 
     if not signal:
         return
@@ -106,8 +101,8 @@ def check_entry(symbol):
         f"{signal}\n"
         f"🤖 Source: {BOT_SOURCE}\n\n"
         f"📊 Pair: {symbol}\n"
-        f"⏱ Entry TF: 1H\n"
-        f"📈 Trend TF: 4H\n"
+        f"⏱ Entry TF: {entry_tf}\n"
+        f"📈 Trend TF: {trend_tf} (EMA 200)\n"
         f"💰 Price: {price}\n"
         f"🕒 UTC: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')}"
     )
@@ -118,17 +113,34 @@ def check_entry(symbol):
 # ▶️ START MESSAGE
 # ===============================
 send_alert(
-    "✅ Swing Trading Bot Started\n"
-    "📊 Strategy: 4H Trend + 1H EMA Crossover\n"
-    "⏱ Scan Interval: 1 Hour\n"
+    "✅ Multi-Strategy Bot Started\n"
+    "📊 Strategy 1: 4H Trend + 1H EMA Cross\n"
+    "⚡ Strategy 2: 1H Trend + 15M EMA Cross\n"
+    "⏱ Scan Interval: 15 Minutes\n"
     f"🤖 Source: {BOT_SOURCE}"
 )
 
 # ===============================
-# ▶️ RUN ONCE (GITHUB ACTION)
+# ▶️ RUN
 # ===============================
 for pair in PAIRS:
     try:
-        check_entry(pair)
+        # 🔵 Strategy 1 (Original)
+        check_entry(
+            symbol=pair,
+            trend_tf="4h",
+            entry_tf="1h",
+            strategy_name="Swing 4H/1H"
+        )
+
+        # 🟣 Strategy 2 (New)
+        check_entry(
+            symbol=pair,
+            trend_tf="1h",
+            entry_tf="15m",
+            strategy_name="Intraday 1H/15M"
+        )
+
     except Exception as e:
         send_alert(f"⚠️ Error on {pair}: {e}")
+        
